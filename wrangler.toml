@@ -1,4 +1,4 @@
-name = "uman-transfer-crm"
+name = "transfer-app-crm"
 compatibility_date = "2026-06-01"
 pages_build_output_dir = "public"
 
