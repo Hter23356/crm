@@ -28,8 +28,11 @@ migrations/
   0005_data_safety.sql
 start-local.command
 backup-cloudflare.command
+CLOUDFLARE_DEPLOY.md
 DATA_SAFETY.md
 PRODUCTION_CHECKLIST.md
+package.json
+scripts/
 wrangler.toml
 ```
 
@@ -87,6 +90,12 @@ npx wrangler pages dev public --persist-to ./local-database
 
 ## Деплой на Cloudflare
 
+Самая короткая инструкция для Cloudflare Pages находится здесь:
+
+```text
+CLOUDFLARE_DEPLOY.md
+```
+
 1. Создайте D1 базу:
 
 ```bash
@@ -104,8 +113,7 @@ npx wrangler d1 migrations apply uman-transfer-crm --remote
 4. Создайте Cloudflare Pages проект и задеплойте:
 
 ```bash
-npx wrangler pages project create uman-transfer-crm --production-branch main
-npx wrangler pages deploy public --project-name uman-transfer-crm
+npm run build
 ```
 
 5. В настройках Pages привяжите D1 binding:

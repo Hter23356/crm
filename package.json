@@ -1,0 +1,13 @@
+{
+  "name": "uman-transfer-crm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "wrangler pages dev public --persist-to ./local-database",
+    "migrate:local": "wrangler d1 migrations apply DB --local --persist-to ./local-database",
+    "migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "backup": "zsh backup-cloudflare.command"
+  }
+}

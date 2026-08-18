@@ -1,6 +1,7 @@
 .dev.vars
 node_modules/
 .DS_Store
+dist/
 .wrangler/
 local-database/
 backups/*.sql
