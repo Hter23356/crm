@@ -11,6 +11,9 @@ const TRIP_STATUSES = [
 ];
 
 const PAYMENT_STATUSES = ['unpaid', 'deposit_paid', 'paid', 'refunded'];
+const ROUTE_PRICE_TYPES = ['sprinter_18', 'sprinter_22', 'bus_28', 'regular_35'];
+const ROUTE_ZONES = ['nearby', 'europe', 'airport'];
+const ROUTE_CURRENCIES = ['USD', 'EUR', 'UAH'];
 const DEFAULT_TRIP_DURATION = 300;
 const LOGIN_WINDOW_MINUTES = 15;
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -59,6 +62,36 @@ export async function onRequest(context) {
 
 async function adminRoutes(path, request, env, user) {
   const url = new URL(request.url);
+
+  if (path === '/admin/routes' && request.method === 'GET') {
+    return json({ routes: await listTransferRoutes(env.DB, true) });
+  }
+
+  if (path === '/admin/routes' && request.method === 'POST') {
+    const payload = await request.json();
+    const route = await createTransferRoute(env.DB, payload);
+    await logAudit(env.DB, user.id, 'create', 'route', route.id, `Добавлен маршрут ${route.source_location} → ${route.destination_location}`, route);
+    return json({ route }, 201);
+  }
+
+  const routeMatch = path.match(/^\/admin\/routes\/(\d+)$/);
+  if (routeMatch && request.method === 'PUT') {
+    const payload = await request.json();
+    const before = await getTransferRoute(env.DB, routeMatch[1]);
+    if (!before) throw httpError(404, 'Маршрут не найден');
+    const route = await updateTransferRoute(env.DB, routeMatch[1], payload);
+    await logAudit(env.DB, user.id, 'update', 'route', route.id, `Изменён маршрут ${route.source_location} → ${route.destination_location}`, changedFields(before, route));
+    return json({ route });
+  }
+
+  if (routeMatch && request.method === 'DELETE') {
+    const route = await getTransferRoute(env.DB, routeMatch[1]);
+    if (!route) throw httpError(404, 'Маршрут не найден');
+    await env.DB.prepare("UPDATE transfer_routes SET is_active = 0, updated_at = datetime('now') WHERE id = ?")
+      .bind(route.id).run();
+    await logAudit(env.DB, user.id, 'delete', 'route', route.id, `Отключён маршрут ${route.source_location} → ${route.destination_location}`, route);
+    return json({ ok: true });
+  }
 
   if (path === '/admin/dashboard' && request.method === 'GET') {
     const businessToday = businessDate();
@@ -112,6 +145,7 @@ async function adminRoutes(path, request, env, user) {
         { label: 'Все заказы CSV', href: '/api/admin/export/orders.csv' },
         { label: 'Водители CSV', href: '/api/admin/export/drivers.csv' },
         { label: 'Машины CSV', href: '/api/admin/export/cars.csv' },
+        { label: 'Маршруты CSV', href: '/api/admin/export/routes.csv' },
         { label: 'Журнал действий CSV', href: '/api/admin/export/audit.csv' },
       ],
     });
@@ -127,6 +161,10 @@ async function adminRoutes(path, request, env, user) {
 
   if (path === '/admin/export/cars.csv' && request.method === 'GET') {
     return csvResponse('cars.csv', await exportTableCsv(env.DB, 'cars'));
+  }
+
+  if (path === '/admin/export/routes.csv' && request.method === 'GET') {
+    return csvResponse('routes.csv', await exportTableCsv(env.DB, 'transfer_routes'));
   }
 
   if (path === '/admin/export/audit.csv' && request.method === 'GET') {
@@ -378,6 +416,60 @@ function requireRole(user, role) {
   if (user.role !== role) throw httpError(403, 'Forbidden');
 }
 
+async function listTransferRoutes(db, includeInactive = false) {
+  const { results } = await db.prepare(
+    `SELECT * FROM transfer_routes
+     ${includeInactive ? '' : 'WHERE is_active = 1'}
+     ORDER BY is_active DESC, sort_order ASC, source_location ASC`
+  ).all();
+  return results;
+}
+
+async function getTransferRoute(db, id) {
+  return db.prepare('SELECT * FROM transfer_routes WHERE id = ?').bind(id).first();
+}
+
+async function createTransferRoute(db, payload) {
+  const result = await db.prepare(
+    `INSERT INTO transfer_routes (
+      source_location, destination_location, zone, currency, price_sprinter_18,
+      price_sprinter_22, price_bus_28, price_regular_35, notes, sort_order, is_active
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    requiredText(payload.source_location, 'Укажите пункт отправления'),
+    text(payload.destination_location || 'Умань'),
+    validValue(payload.zone, ROUTE_ZONES, 'nearby'),
+    validValue(payload.currency, ROUTE_CURRENCIES, 'USD'),
+    nullableNumber(payload.price_sprinter_18),
+    nullableNumber(payload.price_sprinter_22),
+    nullableNumber(payload.price_bus_28),
+    nullableNumber(payload.price_regular_35),
+    text(payload.notes), number(payload.sort_order, 0), boolInt(payload.is_active, 1)
+  ).run();
+  return getTransferRoute(db, result.meta.last_row_id);
+}
+
+async function updateTransferRoute(db, id, payload) {
+  await db.prepare(
+    `UPDATE transfer_routes SET
+      source_location = ?, destination_location = ?, zone = ?, currency = ?,
+      price_sprinter_18 = ?, price_sprinter_22 = ?, price_bus_28 = ?, price_regular_35 = ?,
+      notes = ?, sort_order = ?, is_active = ?, updated_at = datetime('now')
+     WHERE id = ?`
+  ).bind(
+    requiredText(payload.source_location, 'Укажите пункт отправления'),
+    text(payload.destination_location || 'Умань'),
+    validValue(payload.zone, ROUTE_ZONES, 'nearby'),
+    validValue(payload.currency, ROUTE_CURRENCIES, 'USD'),
+    nullableNumber(payload.price_sprinter_18),
+    nullableNumber(payload.price_sprinter_22),
+    nullableNumber(payload.price_bus_28),
+    nullableNumber(payload.price_regular_35),
+    text(payload.notes), number(payload.sort_order, 0), boolInt(payload.is_active, 1), id
+  ).run();
+  return getTransferRoute(db, id);
+}
+
 async function listOrders(db, filters = {}) {
   const where = [];
   const values = [];
@@ -420,11 +512,15 @@ async function listOrders(db, filters = {}) {
   }
 
   const sql = `
-    SELECT orders.*, users.name AS driver_name, cars.name AS car_name, cars.plate_number
+    SELECT orders.*, users.name AS driver_name, cars.name AS car_name, cars.plate_number,
+           transfer_routes.source_location AS route_source,
+           transfer_routes.destination_location AS route_destination,
+           transfer_routes.currency AS route_currency
     FROM orders
     LEFT JOIN drivers ON drivers.id = orders.assigned_driver_id
     LEFT JOIN users ON users.id = drivers.user_id
     LEFT JOIN cars ON cars.id = orders.car_id
+    LEFT JOIN transfer_routes ON transfer_routes.id = orders.route_id
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY orders.arrival_date DESC, orders.arrival_time DESC
     LIMIT ${limit}
@@ -435,21 +531,23 @@ async function listOrders(db, filters = {}) {
 
 async function createOrder(db, payload) {
   await assertResourcesAvailable(db, payload);
-  const paymentRest = number(payload.payment_rest, Math.max(0, number(payload.price) - number(payload.deposit)));
+  const routeValues = await orderRouteValues(db, payload);
+  const paymentRest = number(payload.payment_rest, Math.max(0, routeValues.price - number(payload.deposit)));
   const tripStatus = validValue(payload.trip_status || (payload.assigned_driver_id ? 'assigned' : 'new'), TRIP_STATUSES, 'new');
   const paymentStatus = validValue(payload.payment_status, PAYMENT_STATUSES, 'unpaid');
   const result = await db.prepare(
     `INSERT INTO orders (
       client_name, client_phone, client_messenger, airport, terminal, flight_number, arrival_date, arrival_time,
       passengers_count, luggage_count, destination_address, client_comment, admin_comment, assigned_driver_id,
-      car_id, price, deposit, payment_rest, payment_method, payment_status, trip_status, estimated_duration_minutes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      car_id, route_id, route_price_type, price, deposit, payment_rest, payment_method, payment_status,
+      trip_status, estimated_duration_minutes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     text(payload.client_name), text(payload.client_phone), text(payload.client_messenger), text(payload.airport),
     text(payload.terminal), text(payload.flight_number), text(payload.arrival_date), text(payload.arrival_time),
     number(payload.passengers_count, 1), number(payload.luggage_count, 0), text(payload.destination_address),
     text(payload.client_comment), text(payload.admin_comment), nullableId(payload.assigned_driver_id),
-    nullableId(payload.car_id), number(payload.price), number(payload.deposit), paymentRest,
+    nullableId(payload.car_id), routeValues.routeId, routeValues.priceType, routeValues.price, number(payload.deposit), paymentRest,
     text(payload.payment_method || 'cash'), paymentStatus, tripStatus, tripDuration(payload.estimated_duration_minutes)
   ).run();
   return result.meta.last_row_id;
@@ -457,7 +555,8 @@ async function createOrder(db, payload) {
 
 async function updateOrder(db, id, payload) {
   await assertResourcesAvailable(db, payload, id);
-  const paymentRest = number(payload.payment_rest, Math.max(0, number(payload.price) - number(payload.deposit)));
+  const routeValues = await orderRouteValues(db, payload);
+  const paymentRest = number(payload.payment_rest, Math.max(0, routeValues.price - number(payload.deposit)));
   const tripStatus = validValue(payload.trip_status || (payload.assigned_driver_id ? 'assigned' : 'new'), TRIP_STATUSES, 'new');
   const paymentStatus = validValue(payload.payment_status, PAYMENT_STATUSES, 'unpaid');
   await db.prepare(
@@ -465,7 +564,8 @@ async function updateOrder(db, id, payload) {
       client_name = ?, client_phone = ?, client_messenger = ?, airport = ?, terminal = ?, flight_number = ?,
       arrival_date = ?, arrival_time = ?, passengers_count = ?, luggage_count = ?, destination_address = ?,
       client_comment = ?, admin_comment = ?, assigned_driver_id = ?, car_id = ?, price = ?, deposit = ?,
-      payment_rest = ?, payment_method = ?, payment_status = ?, trip_status = ?, estimated_duration_minutes = ?,
+      route_id = ?, route_price_type = ?, payment_rest = ?, payment_method = ?, payment_status = ?,
+      trip_status = ?, estimated_duration_minutes = ?,
       updated_at = datetime('now')
     WHERE id = ?`
   ).bind(
@@ -473,10 +573,28 @@ async function updateOrder(db, id, payload) {
     text(payload.terminal), text(payload.flight_number), text(payload.arrival_date), text(payload.arrival_time),
     number(payload.passengers_count, 1), number(payload.luggage_count, 0), text(payload.destination_address),
     text(payload.client_comment), text(payload.admin_comment), nullableId(payload.assigned_driver_id),
-    nullableId(payload.car_id), number(payload.price), number(payload.deposit), paymentRest,
+    nullableId(payload.car_id), routeValues.price, number(payload.deposit), routeValues.routeId, routeValues.priceType, paymentRest,
     text(payload.payment_method || 'cash'), paymentStatus, tripStatus,
     tripDuration(payload.estimated_duration_minutes), id
   ).run();
+}
+
+async function orderRouteValues(db, payload) {
+  const routeId = nullableId(payload.route_id);
+  const priceType = routeId ? validValue(payload.route_price_type, ROUTE_PRICE_TYPES, 'sprinter_18') : null;
+  let price = number(payload.price);
+  if (!routeId) return { routeId: null, priceType: null, price };
+
+  const route = await getTransferRoute(db, routeId);
+  if (!route) throw httpError(400, 'Выбранный маршрут не найден');
+  const column = {
+    sprinter_18: 'price_sprinter_18',
+    sprinter_22: 'price_sprinter_22',
+    bus_28: 'price_bus_28',
+    regular_35: 'price_regular_35',
+  }[priceType];
+  if ((payload.price === '' || payload.price == null) && route[column] != null) price = number(route[column]);
+  return { routeId, priceType, price };
 }
 
 async function assertResourcesAvailable(db, payload, excludeOrderId = null) {
@@ -532,11 +650,15 @@ async function requireOrder(db, id) {
 
 async function getOrderById(db, id, includeDeleted = false) {
   return db.prepare(
-    `SELECT orders.*, users.name AS driver_name, cars.name AS car_name, cars.plate_number
+    `SELECT orders.*, users.name AS driver_name, cars.name AS car_name, cars.plate_number,
+            transfer_routes.source_location AS route_source,
+            transfer_routes.destination_location AS route_destination,
+            transfer_routes.currency AS route_currency
      FROM orders
      LEFT JOIN drivers ON drivers.id = orders.assigned_driver_id
      LEFT JOIN users ON users.id = drivers.user_id
      LEFT JOIN cars ON cars.id = orders.car_id
+     LEFT JOIN transfer_routes ON transfer_routes.id = orders.route_id
      WHERE orders.id = ? ${includeDeleted ? '' : 'AND orders.deleted_at IS NULL'}`
   ).bind(id).first();
 }
@@ -644,11 +766,15 @@ async function getDriverOrder(db, driverId, orderId) {
 async function exportOrdersCsv(db) {
   const { results } = await db.prepare(
     `SELECT orders.*, users.name AS driver_name, cars.name AS car_name, cars.plate_number,
+            transfer_routes.source_location AS route_source,
+            transfer_routes.destination_location AS route_destination,
+            transfer_routes.currency AS route_currency,
             deleted_by.name AS deleted_by_name
      FROM orders
      LEFT JOIN drivers ON drivers.id = orders.assigned_driver_id
      LEFT JOIN users ON users.id = drivers.user_id
      LEFT JOIN cars ON cars.id = orders.car_id
+     LEFT JOIN transfer_routes ON transfer_routes.id = orders.route_id
      LEFT JOIN users AS deleted_by ON deleted_by.id = orders.deleted_by_user_id
      ORDER BY orders.id DESC`
   ).all();
@@ -667,7 +793,7 @@ async function exportDriversCsv(db) {
 }
 
 async function exportTableCsv(db, tableName) {
-  const allowed = new Set(['cars']);
+  const allowed = new Set(['cars', 'transfer_routes']);
   if (!allowed.has(tableName)) throw httpError(400, 'Export is not allowed');
   const { results } = await db.prepare(`SELECT * FROM ${tableName} ORDER BY id DESC`).all();
   return toCsv(results);
@@ -732,9 +858,21 @@ function text(value) {
   return value == null ? '' : String(value).trim();
 }
 
+function requiredText(value, message) {
+  const result = text(value);
+  if (!result) throw httpError(400, message);
+  return result;
+}
+
 function number(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function nullableNumber(value) {
+  if (value === '' || value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function nullableId(value) {

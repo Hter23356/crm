@@ -26,6 +26,7 @@ migrations/
   0003_operations_security.sql
   0004_remove_telegram.sql
   0005_data_safety.sql
+  0006_routes.sql
 start-local.command
 backup-cloudflare.command
 CLOUDFLARE_DEPLOY.md
@@ -114,6 +115,7 @@ npx wrangler d1 migrations apply uman-transfer-crm --remote
 
 ```bash
 npm run build
+npx wrangler pages deploy dist --project-name uman-crm
 ```
 
 5. В настройках Pages привяжите D1 binding:
@@ -163,6 +165,7 @@ zsh backup-cloudflare.command
 - ищет и фильтрует заказы по дате, аэропорту, водителю и статусу
 - добавляет, редактирует и отключает водителей
 - добавляет и редактирует машины
+- добавляет, редактирует и отключает маршруты и четыре тарифа по вместимости
 - видит оплаты, доход за день, неделю и месяц
 - видит историю завершённых поездок
 
@@ -184,6 +187,7 @@ zsh backup-cloudflare.command
 - `/admin/orders/:id`
 - `/admin/drivers`
 - `/admin/cars`
+- `/admin/routes`
 - `/admin/payments`
 - `/admin/reports`
 - `/driver/dashboard`

@@ -4,6 +4,7 @@ const state = {
   user: null,
   drivers: [],
   cars: [],
+  routes: [],
   notice: '',
 };
 
@@ -28,6 +29,18 @@ const paymentLabels = {
 
 const tripOptions = Object.keys(tripLabels);
 const paymentOptions = Object.keys(paymentLabels);
+const routePriceLabels = {
+  sprinter_18: 'Спринтер 18',
+  sprinter_22: 'Спринтер 22',
+  bus_28: '28 мест',
+  regular_35: '35 обычный',
+};
+
+const routeZoneLabels = {
+  nearby: 'Украина и граница',
+  europe: 'Европа',
+  airport: 'Аэропорты / доплата',
+};
 
 window.addEventListener('popstate', boot);
 document.addEventListener('click', routeClicks);
@@ -87,6 +100,7 @@ async function renderAdmin(path) {
   if (/^\/admin\/orders\/\d+$/.test(path)) return page('Заказ', await adminOrderDetail(path.split('/').pop()));
   if (path === '/admin/drivers') return page('Водители', adminDrivers());
   if (path === '/admin/cars') return page('Машины', adminCars());
+  if (path === '/admin/routes') return page('Маршруты и цены', adminRoutesPage());
   if (path === '/admin/payments') return page('Оплаты', await adminPayments());
   if (path === '/admin/reports') return page('Отчёты', await adminReports());
   if (path === '/admin/audit') return page('Журнал действий', await adminAudit());
@@ -128,6 +142,7 @@ function navLinks() {
     ['/admin/orders/new', 'Новый заказ'],
     ['/admin/drivers', 'Водители'],
     ['/admin/cars', 'Машины'],
+    ['/admin/routes', 'Маршруты'],
     ['/admin/payments', 'Оплаты'],
     ['/admin/reports', 'Отчёты'],
     ['/admin/audit', 'Журнал действий'],
@@ -175,7 +190,7 @@ async function adminOrders() {
     <form class="toolbar" data-form="filters">
       <input name="q" placeholder="Поиск" value="${escapeAttr(params.get('q') || '')}">
       <input name="date" type="date" value="${escapeAttr(params.get('date') || '')}">
-      <select name="airport">${selectOptions(['', 'Борисполь', 'Кишинёв', 'Яссы'], params.get('airport') || '', 'Аэропорт')}</select>
+      <select name="airport">${routeLocationOptions(params.get('airport') || '', 'Аэропорт / маршрут')}</select>
       <select name="driver_id">${driverOptions(params.get('driver_id') || '', 'Водитель')}</select>
       <select name="status">${statusOptions(tripLabels, params.get('status') || '', 'Статус')}</select>
       <button type="submit">Фильтр</button>
@@ -191,13 +206,19 @@ async function adminOrderDetail(id) {
 
 function adminOrderForm(order = {}) {
   const isEdit = Boolean(order.id);
+  const availableRoutes = state.routes.filter((route) => route.is_active || String(route.id) === String(order.route_id || ''));
   return `
     <form class="panel" data-form="order" data-id="${order.id || ''}">
+      <div class="route-picker">
+        ${select('route_id', 'Маршрут из таблицы', availableRoutes.map((route) => [route.id, `${route.source_location} → ${route.destination_location}`]), order.route_id)}
+        ${select('route_price_type', 'Тариф', Object.entries(routePriceLabels), order.route_price_type || 'sprinter_18')}
+        <div id="route-price-note" class="route-price-note">Выберите маршрут, чтобы подставить место и цену.</div>
+      </div>
       <div class="form-grid">
         ${input('client_name', 'Имя клиента', order.client_name, true)}
         ${input('client_phone', 'Телефон', order.client_phone, true)}
         ${input('client_messenger', 'WhatsApp', whatsappValue(order.client_messenger))}
-        ${select('airport', 'Аэропорт', ['Борисполь', 'Кишинёв', 'Яссы'], order.airport, true)}
+        ${input('airport', 'Аэропорт / пункт отправления', order.airport, true)}
         ${input('terminal', 'Терминал', order.terminal)}
         ${input('flight_number', 'Номер рейса', order.flight_number)}
         ${input('arrival_date', 'Дата прилёта', order.arrival_date, true, 'date')}
@@ -268,6 +289,69 @@ function adminCars() {
       <div class="table-list">${state.cars.map(carRow).join('')}</div>
     </section>
   `;
+}
+
+function adminRoutesPage() {
+  return `
+    <section class="panel">
+      <h2>Добавить или изменить маршрут</h2>
+      <form class="form-grid" data-form="route">
+        <input type="hidden" name="id">
+        ${input('source_location', 'Пункт отправления', '', true)}
+        ${input('destination_location', 'Пункт назначения', 'Умань', true)}
+        ${select('zone', 'Группа', Object.entries(routeZoneLabels), 'nearby', true)}
+        <input type="hidden" name="currency" value="USD">
+        ${input('price_sprinter_18', 'Спринтер 18', '', false, 'number')}
+        ${input('price_sprinter_22', 'Спринтер 22', '', false, 'number')}
+        ${input('price_bus_28', '28 мест', '', false, 'number')}
+        ${input('price_regular_35', '35 обычный', '', false, 'number')}
+        ${input('sort_order', 'Порядок', 0, false, 'number')}
+        ${select('is_active', 'Статус', [[1, 'Активен'], [0, 'Отключён']], 1, true)}
+        ${textarea('notes', 'Примечание')}
+        <div class="actions full">
+          <button type="submit">Сохранить маршрут</button>
+          <button class="secondary" type="reset">Очистить</button>
+        </div>
+      </form>
+    </section>
+    <section class="panel" style="margin-top:16px">
+      <div class="section-heading">
+        <div><h2>Таблица маршрутов</h2><div class="subtle">Цены сохраняются в Cloudflare D1 и не пропадают после деплоя.</div></div>
+        <span class="pill">${state.routes.filter((route) => route.is_active).length} активных</span>
+      </div>
+      <div class="route-cards">${state.routes.map(routeCard).join('')}</div>
+    </section>
+  `;
+}
+
+function routeCard(route) {
+  return `
+    <article class="route-card route-zone-${escapeAttr(route.zone)} ${route.is_active ? '' : 'route-disabled'}">
+      <div class="route-card-head">
+        <div>
+          <h3>${escapeHtml(route.source_location)} → ${escapeHtml(route.destination_location)}</h3>
+          <div class="subtle">${escapeHtml(routeZoneLabels[route.zone] || route.zone)} · ${escapeHtml(route.currency)}</div>
+        </div>
+        <span class="pill ${route.is_active ? 'route-active' : 'route-inactive'}">${route.is_active ? 'Активен' : 'Отключён'}</span>
+      </div>
+      <div class="route-prices">
+        ${routePrice('Спринтер 18', route.price_sprinter_18, route.currency)}
+        ${routePrice('Спринтер 22', route.price_sprinter_22, route.currency)}
+        ${routePrice('28 мест', route.price_bus_28, route.currency)}
+        ${routePrice('35 обычный', route.price_regular_35, route.currency)}
+      </div>
+      ${route.notes ? `<div class="subtle">${escapeHtml(route.notes)}</div>` : ''}
+      <div class="actions">
+        <button class="secondary" data-action="edit-route" data-item='${escapeAttr(JSON.stringify(route))}'>Редактировать</button>
+        ${route.is_active ? `<button class="danger" data-action="delete-route" data-id="${route.id}">Отключить</button>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+function routePrice(label, value, currency) {
+  const amount = value == null || value === '' ? '—' : `${Number(value).toFixed(0)} ${currency}`;
+  return `<div><span>${label}</span><strong>${amount}</strong></div>`;
 }
 
 async function adminPayments() {
@@ -534,7 +618,7 @@ function tab(period, label, active) {
 }
 
 function input(name, labelText, value = '', required = false, type = 'text') {
-  return `<label>${labelText}<input name="${name}" type="${type}" value="${escapeAttr(value ?? '')}" ${required ? 'required' : ''}></label>`;
+  return `<label>${labelText}<input name="${name}" type="${type}" value="${escapeAttr(value ?? '')}" ${required ? 'required' : ''} ${type === 'number' ? 'min="0"' : ''}></label>`;
 }
 
 function textarea(name, labelText, value = '', required = false) {
@@ -565,13 +649,68 @@ function driverOptions(value, empty) {
     .join('');
 }
 
+function routeLocationOptions(value, empty) {
+  const locations = [...new Set([
+    'Борисполь',
+    'Кишинёв',
+    'Яссы',
+    ...state.routes.filter((route) => route.is_active).map((route) => route.source_location),
+  ])];
+  if (value && !locations.includes(value)) locations.push(value);
+  return selectOptions(locations, value, empty);
+}
+
 async function loadDictionaries() {
-  const [drivers, cars] = await Promise.all([
+  const [drivers, cars, routes] = await Promise.all([
     api('/admin/drivers'),
     api('/admin/cars'),
+    api('/admin/routes'),
   ]);
   state.drivers = drivers.drivers;
   state.cars = cars.cars;
+  state.routes = routes.routes;
+}
+
+function applySelectedRoute(form) {
+  const route = state.routes.find((item) => String(item.id) === String(form.elements.route_id?.value || ''));
+  const note = document.querySelector('#route-price-note');
+  if (!route) {
+    if (note) note.textContent = 'Выберите маршрут, чтобы подставить место и цену.';
+    return;
+  }
+
+  const type = form.elements.route_price_type?.value || 'sprinter_18';
+  const column = {
+    sprinter_18: 'price_sprinter_18',
+    sprinter_22: 'price_sprinter_22',
+    bus_28: 'price_bus_28',
+    regular_35: 'price_regular_35',
+  }[type];
+  const price = route[column];
+  form.elements.airport.value = route.source_location;
+  if (!form.elements.destination_address.value || form.elements.destination_address.dataset.routeFilled === '1') {
+    form.elements.destination_address.value = route.destination_location;
+    form.elements.destination_address.dataset.routeFilled = '1';
+  }
+  if (price != null && price !== '') {
+    form.elements.price.value = price;
+    updatePaymentRest(form);
+  } else {
+    form.elements.price.value = '';
+    updatePaymentRest(form);
+  }
+  if (note) {
+    note.textContent = price == null || price === ''
+      ? `Для тарифа «${routePriceLabels[type]}» цена пока не указана. Введите её вручную.`
+      : `${route.source_location} → ${route.destination_location}: ${Number(price).toFixed(0)} ${route.currency}`;
+  }
+}
+
+function updatePaymentRest(form) {
+  if (!form?.elements.payment_rest) return;
+  const price = Number(form.elements.price?.value || 0);
+  const deposit = Number(form.elements.deposit?.value || 0);
+  form.elements.payment_rest.value = Math.max(0, price - deposit);
 }
 
 async function refreshAvailability() {
@@ -660,7 +799,14 @@ function applyResourceConflicts(form, conflicts) {
 
 function handleChanges(event) {
   const watched = ['arrival_date', 'arrival_time', 'estimated_duration_minutes', 'assigned_driver_id', 'car_id'];
-  if (event.target.closest('[data-form="order"]') && watched.includes(event.target.name)) {
+  const orderForm = event.target.closest('[data-form="order"]');
+  if (orderForm && ['route_id', 'route_price_type'].includes(event.target.name)) {
+    applySelectedRoute(orderForm);
+  }
+  if (orderForm && ['price', 'deposit'].includes(event.target.name)) {
+    updatePaymentRest(orderForm);
+  }
+  if (orderForm && watched.includes(event.target.name)) {
     refreshAvailability();
   }
 }
@@ -700,6 +846,13 @@ async function submitForms(event) {
       const id = payload.id;
       delete payload.id;
       await api(id ? `/admin/cars/${id}` : '/admin/cars', { method: id ? 'PUT' : 'POST', body: payload });
+      await loadDictionaries();
+      render();
+    }
+    if (type === 'route') {
+      const id = payload.id;
+      delete payload.id;
+      await api(id ? `/admin/routes/${id}` : '/admin/routes', { method: id ? 'PUT' : 'POST', body: payload });
       await loadDictionaries();
       render();
     }
@@ -755,9 +908,18 @@ async function routeClicks(event) {
     render();
   }
 
-  if (action === 'edit-driver' || action === 'edit-car') {
+  if (action === 'delete-route') {
+    if (confirm('Отключить маршрут? Он останется в старых заказах и его можно будет снова включить через редактирование.')) {
+      await api(`/admin/routes/${event.target.dataset.id}`, { method: 'DELETE' });
+      await loadDictionaries();
+      render();
+    }
+  }
+
+  if (action === 'edit-driver' || action === 'edit-car' || action === 'edit-route') {
     const item = JSON.parse(event.target.dataset.item);
-    const form = document.querySelector(`[data-form="${action === 'edit-driver' ? 'driver' : 'car'}"]`);
+    const formType = action === 'edit-driver' ? 'driver' : action === 'edit-car' ? 'car' : 'route';
+    const form = document.querySelector(`[data-form="${formType}"]`);
     Object.entries(item).forEach(([key, value]) => {
       if (form.elements[key]) form.elements[key].value = value ?? '';
     });

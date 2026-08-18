@@ -321,6 +321,101 @@ label {
   gap: 12px;
 }
 
+.route-picker {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) minmax(240px, 2fr);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #b7d8ce;
+  border-radius: 8px;
+  background: #f0faf6;
+}
+
+.route-price-note {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  color: #0f604d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.section-heading,
+.route-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.section-heading {
+  margin-bottom: 14px;
+}
+
+.section-heading h2,
+.route-card h3 {
+  margin: 0;
+}
+
+.route-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.route-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 5px solid #7f8c8d;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.route-zone-nearby { border-left-color: #62a85b; }
+.route-zone-europe { border-left-color: #4b8fc9; }
+.route-zone-airport { border-left-color: #d5a62d; }
+
+.route-disabled {
+  opacity: 0.65;
+  background: #f7f8f9;
+}
+
+.route-active { background: #dcfae6; color: #067647; }
+.route-inactive { background: #e8eef3; color: #475467; }
+
+.route-prices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.route-prices div {
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.route-prices span,
+.route-prices strong {
+  display: block;
+}
+
+.route-prices span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.route-prices strong {
+  margin-top: 3px;
+  font-size: 16px;
+}
+
 .full {
   grid-column: 1 / -1;
 }
@@ -551,7 +646,8 @@ label {
 
   .metrics,
   .safety-grid,
-  .form-grid {
+  .form-grid,
+  .route-picker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -573,6 +669,7 @@ label {
   .metrics,
     .form-grid,
     .safety-grid,
+    .route-picker,
     .row,
   .toolbar,
   .list-row {
@@ -581,6 +678,17 @@ label {
 
   .cards {
     grid-template-columns: 1fr;
+  }
+
+  .route-cards,
+  .route-prices {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading,
+  .route-card-head {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .contact-panel {

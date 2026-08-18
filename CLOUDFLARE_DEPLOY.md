@@ -25,7 +25,7 @@ Hter23356/crm
 Поставьте настройки:
 
 ```text
-Project name: crm
+Project name: uman-crm
 Production branch: main
 Framework preset: None
 Build command: npm run build
@@ -43,6 +43,14 @@ npx wrangler pages deploy public
 ```
 
 Cloudflare сам деплоит Pages после команды `npm run build`.
+
+Если деплоите из Терминала, используйте:
+
+```bash
+cd /Users/23force/Documents/Codex/2026-06-04/new-chat/work/uman-transfer-crm
+npm run build
+npx wrangler pages deploy dist --project-name uman-crm
+```
 
 ## D1 Binding
 
@@ -84,7 +92,7 @@ npx wrangler d1 migrations apply DB --remote
 После деплоя откройте:
 
 ```text
-https://crm.pages.dev/login
+https://uman-crm.pages.dev/login
 ```
 
 Или домен, который покажет Cloudflare.
